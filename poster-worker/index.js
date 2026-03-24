@@ -3,6 +3,9 @@ require("dotenv").config();
 
 const path = require("path");
 const fs = require("fs");
+const { exec } = require("child_process");
+const util = require("util");
+const execAsync = util.promisify(exec);
 const express = require("express");
 const axios = require("axios");
 const ffmpeg = require("fluent-ffmpeg");
@@ -36,6 +39,49 @@ console.log(
     ),
   }),
 );
+
+async function logFfmpegRuntimeDiagnostics() {
+  console.log("[AUDIT_FF] process.version", process.version);
+  console.log("[AUDIT_FF] process.platform", process.platform);
+  console.log("[AUDIT_FF] process.arch", process.arch);
+  console.log("[AUDIT_FF] PATH", process.env.PATH ?? "(undefined)");
+
+  const shellCommands = [
+    { label: "which ffmpeg", cmd: "which ffmpeg" },
+    { label: "ffmpeg -version", cmd: "ffmpeg -version" },
+    { label: "which ffprobe", cmd: "which ffprobe" },
+    { label: "ffprobe -version", cmd: "ffprobe -version" },
+  ];
+
+  for (const { label, cmd } of shellCommands) {
+    try {
+      const { stdout, stderr } = await execAsync(cmd, {
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      console.log(`[AUDIT_FF] ${label} — ok`);
+      console.log(
+        `[AUDIT_FF] ${label} stdout:`,
+        stdout === "" ? "(empty)" : stdout,
+      );
+      console.log(
+        `[AUDIT_FF] ${label} stderr:`,
+        stderr === "" ? "(empty)" : stderr,
+      );
+    } catch (err) {
+      const e = err && typeof err === "object" ? err : {};
+      console.error(`[AUDIT_FF] ${label} — FAILED:`, err instanceof Error ? err.message : err);
+      const out = "stdout" in e && e.stdout != null ? String(e.stdout) : "";
+      const errOut = "stderr" in e && e.stderr != null ? String(e.stderr) : "";
+      console.log(`[AUDIT_FF] ${label} stdout:`, out === "" ? "(empty)" : out);
+      console.log(`[AUDIT_FF] ${label} stderr:`, errOut === "" ? "(empty)" : errOut);
+    }
+  }
+
+  console.log(
+    "[AUDIT_FF] ffmpeg-static path (used by fluent-ffmpeg via setFfmpegPath):",
+    ffmpegPath || "(null)",
+  );
+}
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -360,6 +406,9 @@ app.post("/generate-poster", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log("Poster worker running on http://localhost:3000");
-});
+(async () => {
+  await logFfmpegRuntimeDiagnostics();
+  app.listen(PORT, () => {
+    console.log("Poster worker running on http://localhost:3000");
+  });
+})();
