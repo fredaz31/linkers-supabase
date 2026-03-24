@@ -9,8 +9,11 @@ const execAsync = util.promisify(exec);
 const express = require("express");
 const axios = require("axios");
 const ffmpeg = require("fluent-ffmpeg");
-const ffmpegPath = require("ffmpeg-static");
 const { loadSupabaseEnv, createSupabaseServiceClient } = require("./config");
+
+/** System binaries from Dockerfile `apt-get install -y ffmpeg` (Railway container). */
+const FFMPEG_BIN = "/usr/bin/ffmpeg";
+const FFPROBE_BIN = "/usr/bin/ffprobe";
 
 const RAILWAY_POSTER_AUDIT_MARKER = "RAILWAY_POSTER_AUDIT_MARKER_V1_2026_03_24";
 
@@ -19,11 +22,16 @@ const WORK_DIR = __dirname;
 const INPUT_FILE = path.join(WORK_DIR, "input.mp4");
 const POSTER_FILE = path.join(WORK_DIR, "poster.jpg");
 
-if (!ffmpegPath) {
-  console.error("ffmpeg-static did not resolve a binary path.");
+if (!fs.existsSync(FFMPEG_BIN)) {
+  console.error(`poster-worker: ffmpeg not found at ${FFMPEG_BIN}`);
   process.exit(1);
 }
-ffmpeg.setFfmpegPath(ffmpegPath);
+if (!fs.existsSync(FFPROBE_BIN)) {
+  console.error(`poster-worker: ffprobe not found at ${FFPROBE_BIN}`);
+  process.exit(1);
+}
+ffmpeg.setFfmpegPath(FFMPEG_BIN);
+ffmpeg.setFfprobePath(FFPROBE_BIN);
 
 console.log(
   `[${RAILWAY_POSTER_AUDIT_MARKER}] RAILWAY_WORKER_STARTUP`,
@@ -78,8 +86,9 @@ async function logFfmpegRuntimeDiagnostics() {
   }
 
   console.log(
-    "[AUDIT_FF] ffmpeg-static path (used by fluent-ffmpeg via setFfmpegPath):",
-    ffmpegPath || "(null)",
+    "[AUDIT_FF] fluent-ffmpeg paths (setFfmpegPath / setFfprobePath):",
+    FFMPEG_BIN,
+    FFPROBE_BIN,
   );
 }
 
