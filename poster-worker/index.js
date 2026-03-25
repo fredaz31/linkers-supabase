@@ -130,7 +130,7 @@ function extractPosterFrame() {
     console.log("[AUDIT] exact temporary local output path:", POSTER_FILE);
 
     const ffCommand = ffmpeg(INPUT_FILE)
-      .inputOptions(["-ss", "1"])
+      .inputOptions(["-ss", "0.04"])
       .outputOptions(["-vframes", "1", "-q:v", "2"])
       .output(POSTER_FILE);
 
