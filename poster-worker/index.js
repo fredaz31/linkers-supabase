@@ -3,6 +3,7 @@ require("dotenv").config();
 
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const { exec } = require("child_process");
 const util = require("util");
 const execAsync = util.promisify(exec);
@@ -16,6 +17,16 @@ const FFMPEG_BIN = "/usr/bin/ffmpeg";
 const FFPROBE_BIN = "/usr/bin/ffprobe";
 
 const RAILWAY_POSTER_AUDIT_MARKER = "RAILWAY_POSTER_AUDIT_MARKER_V1_2026_03_24";
+
+const ALLOWED_MEDIA_URL_HOSTNAME = "aoleytwjkbenmtfsyche.supabase.co";
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function timingSafeStringEqual(a, b) {
+  const bufA = Buffer.from(String(a), "utf8");
+  const bufB = Buffer.from(String(b), "utf8");
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 const PORT = 3000;
 const WORK_DIR = __dirname;
@@ -211,6 +222,96 @@ app.get("/health", (req, res) => {
 });
 
 app.post("/generate-poster", async (req, res) => {
+  // Patch #1 — secret check (avant toute opération)
+  const expectedSecret = process.env.POSTER_WORKER_SECRET;
+  const providedSecret = req.get("x-worker-secret");
+  if (!providedSecret) {
+    console.log("[POSTER_WORKER_AUTH] request rejected: missing secret");
+    return sendJson(
+      res,
+      401,
+      {
+        success: false,
+        error: "Unauthorized: missing worker secret",
+      },
+      req,
+    );
+  }
+  if (!expectedSecret || !timingSafeStringEqual(providedSecret, expectedSecret)) {
+    console.log("[POSTER_WORKER_AUTH] request rejected: invalid secret");
+    return sendJson(
+      res,
+      401,
+      {
+        success: false,
+        error: "Unauthorized: invalid worker secret",
+      },
+      req,
+    );
+  }
+  console.log("[POSTER_WORKER_AUTH] request authenticated successfully");
+
+  // Read body (lightweight read for upcoming validations)
+  const earlyStoryId =
+    typeof req.body?.story_id === "string" ? req.body.story_id.trim() : "";
+  const earlyMediaUrl =
+    typeof req.body?.media_url === "string" ? req.body.media_url.trim() : "";
+
+  // Patch #4 — story_id UUID format
+  if (!UUID_REGEX.test(earlyStoryId)) {
+    console.log("[POSTER_WORKER_VALIDATION] story_id format rejected", {
+      story_id: earlyStoryId,
+    });
+    return sendJson(
+      res,
+      400,
+      {
+        success: false,
+        error: "Invalid story_id format",
+      },
+      req,
+    );
+  }
+
+  // Patch #3 — media_url HTTPS + hostname allowlist
+  let parsedMediaUrl;
+  try {
+    parsedMediaUrl = new URL(earlyMediaUrl);
+  } catch {
+    console.log("[POSTER_WORKER_VALIDATION] media_url domain rejected", {
+      hostname: null,
+      reason: "unparseable",
+    });
+    return sendJson(
+      res,
+      400,
+      {
+        success: false,
+        error: "Invalid media_url domain",
+      },
+      req,
+    );
+  }
+  if (
+    parsedMediaUrl.protocol !== "https:" ||
+    parsedMediaUrl.hostname !== ALLOWED_MEDIA_URL_HOSTNAME
+  ) {
+    console.log("[POSTER_WORKER_VALIDATION] media_url domain rejected", {
+      hostname: parsedMediaUrl.hostname,
+      protocol: parsedMediaUrl.protocol,
+    });
+    return sendJson(
+      res,
+      400,
+      {
+        success: false,
+        error: "Invalid media_url domain",
+      },
+      req,
+    );
+  }
+
+  // Existing audit marker log + flow continues below as-is
   console.log(
     `[${RAILWAY_POSTER_AUDIT_MARKER}] POST_GENERATE_POSTER_HANDLER_FIRST_LINE`,
     JSON.stringify({

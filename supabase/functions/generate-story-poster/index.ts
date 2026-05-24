@@ -2,6 +2,9 @@ import "@supabase/functions-js/edge-runtime.d.ts"
 
 const JSON_HEADERS = { "Content-Type": "application/json" }
 
+const ALLOWED_MEDIA_URL_HOSTNAME = "aoleytwjkbenmtfsyche.supabase.co"
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 const jsonResponse = (status: number, payload: Record<string, unknown>) =>
   new Response(JSON.stringify(payload), {
     status,
@@ -61,6 +64,43 @@ Deno.serve(async (req) => {
       })
     }
 
+    if (!UUID_REGEX.test(storyId)) {
+      console.log("[POSTER_EDGE] story_id format rejected", {
+        story_id: storyId,
+      })
+      return jsonResponse(400, {
+        success: false,
+        error: "Invalid story_id format",
+      })
+    }
+
+    let parsedMediaUrl: URL | null = null
+    try {
+      parsedMediaUrl = new URL(mediaUrl)
+    } catch {
+      console.log("[POSTER_EDGE] media_url domain rejected", {
+        hostname: null,
+        reason: "unparseable",
+      })
+      return jsonResponse(400, {
+        success: false,
+        error: "Invalid media_url domain",
+      })
+    }
+    if (
+      parsedMediaUrl.protocol !== "https:" ||
+      parsedMediaUrl.hostname !== ALLOWED_MEDIA_URL_HOSTNAME
+    ) {
+      console.log("[POSTER_EDGE] media_url domain rejected", {
+        hostname: parsedMediaUrl.hostname,
+        protocol: parsedMediaUrl.protocol,
+      })
+      return jsonResponse(400, {
+        success: false,
+        error: "Invalid media_url domain",
+      })
+    }
+
     console.log("generate-story-poster:start", {
       story_id: storyId,
       media_url: mediaUrl,
@@ -78,9 +118,13 @@ Deno.serve(async (req) => {
         worker_endpoint: workerUrl,
         story_id: storyId,
       })
+      console.log("[POSTER_WORKER_AUTH] sending request with secret header")
       const workerRes = await fetch(workerUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-worker-secret": Deno.env.get("POSTER_WORKER_SECRET") ?? "",
+        },
         body: JSON.stringify({ story_id: storyId, media_url: mediaUrl }),
         signal: AbortSignal.timeout(300_000),
       })
