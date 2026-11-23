@@ -1,0 +1,23 @@
+name: Smoke test public Inside HTML preview
+on:
+  push:
+    branches:
+      - preview/inside-golfcenter-menu-20261123
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Vérifier les URLs publiques de la maquette
+        run: |
+          set -eu
+          RAW="https://raw.githubusercontent.com/fredaz31/linkers-supabase/preview/inside-golfcenter-menu-20261123/previews/inside-apple-menu-20261123.html"
+          PREVIEW="https://raw.githack.com/fredaz31/linkers-supabase/preview/inside-golfcenter-menu-20261123/previews/inside-apple-menu-20261123.html"
+          curl -fsSL --retry 5 --retry-delay 2 "$RAW" -o /tmp/inside-raw.html
+          grep -q 'Inside · Apple Menu Lab' /tmp/inside-raw.html
+          curl -fsSL --retry 5 --retry-delay 3 --max-time 30 -D /tmp/headers "$PREVIEW" -o /tmp/inside-preview.html
+          grep -iq 'content-type: text/html' /tmp/headers
+          grep -q 'Inside · Apple Menu Lab' /tmp/inside-preview.html
+          printf "RAW_KB=%s PREVIEW_KB=%s\n" "$(wc -c </tmp/inside-raw.html)" "$(wc -c </tmp/inside-preview.html)"
